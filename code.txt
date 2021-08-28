@@ -1,0 +1,329 @@
+<template>
+  <div class="app-container">
+    <!-- 显示查询结果的表格 -->
+    <el-card class="box-card">
+       <div slot="header" class="clearfix">
+         <span>生产入库</span>
+          <el-button style="float: right; padding: 3px 0;margin-left: 50px;" type="text" @click="handleFgInbound">提交</el-button>
+          <el-button style="float: right; padding: 3px 0" type="text" @click="handleAdd()">添加一行</el-button>
+       </div>
+    <el-form>
+    <el-table
+      v-loading="listLoading"
+      :data="list"
+      :row-style="{height:'50px'}"
+      :cell-style="{padding:'0px'}"
+      border
+      fit
+      highlight-current-row
+      style="width: 100%; margin-left:20px;"
+      @sort-change="sortChange"
+    >
+      <el-table-column label="工单号" width="200px" align="center">
+        <template slot-scope="{row}">
+          <el-form-item>
+            <el-input v-model="row.woNo" class="filter-item" @focus="browseWo(row)" placeholder="请选择"/>
+          </el-form-item>
+        </template>
+      </el-table-column>
+      <el-table-column label="成品编号" width="180px" align="center">
+        <template slot-scope="{row}">
+          <el-form-item>
+              <el-input v-model="row.partNo" class="filter-item" :disabled="true"/>
+          </el-form-item>
+        </template>
+      </el-table-column>
+      <el-table-column label="名称" width="200px" align="center">
+        <template slot-scope="{row}">
+          <el-form-item>
+              <el-input v-model="row.partName" class="filter-item" :disabled="true"/>
+          </el-form-item>
+        </template>
+      </el-table-column>
+      <el-table-column label="批号" width="130px" align="center">
+        <template slot-scope="{row}">
+          <el-form-item>
+              <el-input v-model="row.batch" class="filter-item"/>
+          </el-form-item>
+        </template>
+      </el-table-column>
+      <el-table-column label="入库数量" width="130px" align="center">
+        <template slot-scope="{row}">
+          <el-form-item>
+              <el-input v-model="row.qty" class="filter-item"/>
+          </el-form-item>
+        </template>
+      </el-table-column>
+      <el-table-column label="生产线" width="200px" align="center">
+        <template slot-scope="{row}">
+          <el-form-item>
+              <el-input v-model="row.lineName" class="filter-item" @focus="browseLine(row)" placeholder="请选择"/>
+          </el-form-item>
+        </template>
+      </el-table-column>
+      <el-table-column label="员工号" width="130px" align="center">
+        <template slot-scope="{row}">
+          <el-form-item>
+              <el-input v-model="row.employee" class="filter-item"/>
+          </el-form-item>
+        </template>
+      </el-table-column>
+      <el-table-column label="入库日期" width="170px" align="center">
+        <template slot-scope="{row}">
+          <el-form-item>
+              <el-date-picker type="date" placeholder="选择日期" v-model="row.inDate" style="width: 100%;"></el-date-picker>
+          </el-form-item>
+        </template>
+      </el-table-column>
+      <el-table-column label="备注" width="150px" align="center">
+        <template slot-scope="{row}">
+          <el-form-item>
+              <el-input v-model="row.remark2" class="filter-item"/>
+          </el-form-item>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" align="center" width="120" class-name="small-padding fixed-width">
+        <template slot-scope="{row}">
+          <el-button type="danger" icon="el-icon-delete" size="mini" @click="handleDelete($index, row)">
+            删除
+          </el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+    </el-form>
+  </el-card>
+  <Wo ref="Wo"></Wo>
+  <MyLine ref="MyLine"></MyLine>
+  </div>
+</template>
+
+<script>
+import { fgInbound } from '@/api/storage/business'
+import waves from '@/directive/waves' // waves directive
+import { parseTime } from '@/utils'
+import Pagination from '@/components/Pagination' // secondary package based on el-pagination
+import MyLine from '@/views/pub/line'
+import Wo from '@/views/pub/wo'
+
+const calendarTypeOptions = [
+  { key: 'CN', display_name: 'China' },
+  { key: 'US', display_name: 'USA' },
+  { key: 'JP', display_name: 'Japan' },
+  { key: 'EU', display_name: 'Eurozone' }
+]
+
+// arr to obj, such as { CN : "China", US : "USA" }
+const calendarTypeKeyValue = calendarTypeOptions.reduce((acc, cur) => {
+  acc[cur.key] = cur.display_name
+  return acc
+}, {})
+
+export default {
+  name: 'ComplexTable',
+  components: { Pagination, MyLine, Wo },
+  directives: { waves },
+  filters: {
+    statusFilter(status) {
+      const statusMap = {
+        published: 'success',
+        draft: 'info',
+        deleted: 'danger'
+      }
+      return statusMap[status]
+    },
+    typeFilter(type) {
+      return calendarTypeKeyValue[type]
+    }
+  },
+  data() {
+    return {
+      tableKey: 0,
+      list: [],
+      total: 0,
+      isEdit: false,
+      myRow: undefined,
+      listLoading: true,
+      listQuery: {
+        page: 1,
+        limit: 20,
+        partNo: undefined,
+        partName: undefined,
+        sort: '+id'
+      },
+      importanceOptions: [1, 2, 3],
+      calendarTypeOptions,
+      sortOptions: [{ label: 'ID Ascending', key: '+id' }, { label: 'ID Descending', key: '-id' }],
+      typeOptions: [],
+      temp: {
+        equNo: '',
+        equType: '',
+        faultType: '',
+        faultDesc: '',
+        method: '',
+        rpUser: '',
+        rpDate: '',
+        equRpParts: []
+      },
+      dialogFormVisible: false,
+      dialogStatus: '',
+      textMap: {
+        update: '修改',
+        create: '添加'
+      },
+      dialogPvVisible: false,
+      pvData: [],
+      rules: {
+        woNo: [{ required: true, message: '工单号必填！', trigger: 'change' }],
+        qty: [{ required: true, message: '数量必填！', trigger: 'change' }]
+      },
+      downloadLoading: false
+    }
+  },
+  provide() {
+  	        return {
+                pExtSetLine: this.extSetLine,
+                pExtSetWo: this.extSetWo,
+  	        }
+  	    },
+  created() {
+    this.listLoading = false
+  },
+  methods: {
+    handleAdd() {
+      this.list.push({
+      woNo: '',
+      partNo: '',
+      partName: '',
+      batch: '',
+      qty: '',
+      employee: '',
+      inDate: undefined,
+      lineName: undefined,
+      remark2: ''
+     })
+    },
+    handleFgInbound() {
+         fgInbound(this.list).then(() => {
+           this.$notify({
+             title: '成功',
+             message: '提交成功！',
+             type: 'success',
+             duration: 2000
+           })
+          this.list=[]
+         })
+    },
+    browseLine(row) {
+      this.myRow = row
+      this.$refs.MyLine.handleBrowse()
+    },
+    extSetLine(lineId, lineName) {
+      this.myRow.lineName = lineName
+    },
+    browseWo(row) {
+      this.myRow = row
+      this.$refs.Wo.handleBrowse()
+    },
+    extSetWo(woNo, partNo,partName) {
+      this.myRow.woNo = woNo
+      this.myRow.partNo = partNo
+      this.myRow.partName = partName
+    },
+    handleCommit(){
+      this.$refs['dataForm'].validate((valid) => {
+        if (valid) {
+          this.temp.equRpParts = this.list
+          this.temp.updateUser = this.$store.state.user.id
+          // this.part.partId = parseInt(Math.random() * 100) + 1024 // mock a id
+          createEquRp(this.temp).then(() => {
+          //   // let curLab = this.getDicLabel(this.temp.partTypeId)
+          //   // this.temp.partType = curLab[0].label
+          //   // this.list.unshift(this.temp)
+          //   this.dialogFormVisible = false
+            this.$notify({
+              title: '成功',
+              message: '添加成功！',
+              type: 'success',
+              duration: 2000
+            })
+          })
+        }
+      })
+    },
+    handleDelete(index, row) {
+      this.list.splice(index, 1)
+    },
+    handleFilter() {
+      this.listQuery.page = 1
+      this.getList()
+    },
+    handleModifyStatus(row, status) {
+      this.$message({
+        message: '操作Success',
+        type: 'success'
+      })
+      row.status = status
+    },
+    sortChange(data) {
+      const { prop, order } = data
+      if (prop === 'id') {
+        this.sortByID(order)
+      }
+    },
+    sortByID(order) {
+      if (order === 'ascending') {
+        this.listQuery.sort = '+id'
+      } else {
+        this.listQuery.sort = '-id'
+      }
+      this.handleFilter()
+    },
+    resetTemp() {
+      this.temp = {
+       partNo: '',
+       partName: '',
+       qty: '',
+       unit: '',
+       remark2: ''
+      }
+    },
+    handleDetail(row) {
+      this.temp = Object.assign({}, row) // copy obj
+      this.pExtSetTab('Detail',this.temp.partId,this.temp.partName)
+    },
+    handleFetchPv(pv) {
+      fetchPv(pv).then(response => {
+        this.pvData = response.data.pvData
+        this.dialogPvVisible = true
+      })
+    },
+    handleDownload() {
+      this.downloadLoading = true
+      import('@/vendor/Export2Excel').then(excel => {
+        const tHeader = ['timestamp', 'title', 'type', 'importance', 'status']
+        const filterVal = ['timestamp', 'title', 'type', 'importance', 'status']
+        const data = this.formatJson(filterVal)
+        excel.export_json_to_excel({
+          header: tHeader,
+          data,
+          filename: 'table-list'
+        })
+        this.downloadLoading = false
+      })
+    },
+    formatJson(filterVal) {
+      return this.list.map(v => filterVal.map(j => {
+        if (j === 'timestamp') {
+          return parseTime(v[j])
+        } else {
+          return v[j]
+        }
+      }))
+    },
+    getSortClass: function(key) {
+      const sort = this.listQuery.sort
+      return sort === `+${key}` ? 'ascending' : 'descending'
+    }
+  }
+}
+</script>
